@@ -38,5 +38,4 @@ Overall, this booking system is designed not only to streamline the reservation 
 7. QR Code Check-In System
 8. Maintenance Mode for Courts
 
-## ERD Diagram
 
