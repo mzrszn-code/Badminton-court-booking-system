@@ -7,7 +7,7 @@
     <div class="card glassmorphism" style="padding: 2.5rem;">
         <div style="text-align: center; margin-bottom: 2rem;">
             <div style="width: 70px; height: 70px; background: var(--gradient-primary); border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; font-size: 2rem; color: white;">
-                <i class="fas fa-user-plus"></i>
+                <img src="/images/logo.png" alt="FBC Logo" style="height: 80px; width: 80px; object-fit: contain;">
             </div>
             <h1 style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem;">Create Account</h1>
             <p style="color: var(--text-secondary);">Join us and start booking courts today</p>

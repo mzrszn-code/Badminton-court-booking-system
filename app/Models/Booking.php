@@ -72,4 +72,36 @@ class Booking extends Model
     {
         return $this->status === 'approved';
     }
+
+    /**
+     * Check if the booking session has ended.
+     */
+    public function hasSessionEnded(): bool
+    {
+        $now = \Carbon\Carbon::now();
+        $bookingDate = \Carbon\Carbon::parse($this->booking_date);
+        $endTime = \Carbon\Carbon::parse($this->end_time);
+
+        // Create full datetime for end of session
+        $sessionEnd = $bookingDate->setTime($endTime->hour, $endTime->minute);
+
+        // Handle overnight bookings (end time 0:00-03:00 means next day)
+        if ($endTime->hour <= 3) {
+            $sessionEnd->addDay();
+        }
+
+        return $now->greaterThan($sessionEnd);
+    }
+
+    /**
+     * Get the display status (shows 'completed' for ended approved sessions).
+     */
+    public function getDisplayStatusAttribute(): string
+    {
+        if ($this->status === 'approved' && $this->hasSessionEnded()) {
+            return 'completed';
+        }
+
+        return $this->status;
+    }
 }

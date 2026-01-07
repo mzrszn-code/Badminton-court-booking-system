@@ -4,7 +4,7 @@
 
 @section('content')
 <!-- Hero Section -->
-<section style="text-align: center; padding: 4rem 2rem; margin-bottom: 2rem; background: linear-gradient(rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.7)), url('/images/court-bg.png'); background-size: cover; background-position: center; border-radius: 24px;">
+<section class="courts-hero">
     <h1 class="page-title" style="font-size: 2.5rem;">Available Courts</h1>
     <p class="page-subtitle">Browse and book from our selection of badminton courts.</p>
 </section>
@@ -12,6 +12,11 @@
 <div class="grid grid-cols-3">
     @forelse($courts as $court)
         <div class="card">
+            @if($court->image)
+                <div style="height: 160px; margin: -1.5rem -1.5rem 1rem -1.5rem; border-radius: var(--radius-lg) var(--radius-lg) 0 0; overflow: hidden;">
+                    <img src="{{ asset($court->image) }}" alt="{{ $court->court_name }}" style="width: 100%; height: 100%; object-fit: cover;">
+                </div>
+            @endif
             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
                 <div style="width: 60px; height: 60px; background: {{ $court->status === 'available' ? 'var(--gradient-primary)' : ($court->status === 'maintenance' ? 'var(--danger)' : 'var(--border-color)') }}; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1.5rem;">
                     {{ strtoupper(substr($court->court_name, -1)) }}

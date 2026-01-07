@@ -32,7 +32,14 @@ class BookingController extends Controller
     {
         $courts = Court::where('status', 'available')->get();
         $selectedCourt = $request->has('court') ? Court::find($request->court) : null;
-        $selectedDate = $request->get('date', now()->addDay()->format('Y-m-d'));
+        
+        // Get selected date from request, default to today
+        $selectedDate = $request->get('date', now()->format('Y-m-d'));
+        
+        // Ensure selected date is not in the past
+        if ($selectedDate < now()->format('Y-m-d')) {
+            $selectedDate = now()->format('Y-m-d');
+        }
 
         return view('bookings.create', compact('courts', 'selectedCourt', 'selectedDate'));
     }
@@ -46,9 +53,21 @@ class BookingController extends Controller
             'court_id' => 'required|exists:courts,id',
             'booking_date' => 'required|date|after_or_equal:today',
             'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i|after:start_time',
+            'end_time' => 'required|date_format:H:i',
             'notes' => 'nullable|string|max:500',
         ]);
+
+        // Custom validation for overnight bookings (8AM-3AM operating hours)
+        // Hours 0-3 are treated as 24-27 for comparison (continuation of previous day)
+        $startHour = (int) substr($validated['start_time'], 0, 2);
+        $endHour = (int) substr($validated['end_time'], 0, 2);
+
+        $normalizedStart = $startHour < 8 ? $startHour + 24 : $startHour;
+        $normalizedEnd = $endHour <= 3 ? $endHour + 24 : $endHour;
+
+        if ($normalizedEnd <= $normalizedStart) {
+            return back()->withErrors(['end_time' => 'End time must be after start time.'])->withInput();
+        }
 
         // Check if court is available
         $court = Court::findOrFail($validated['court_id']);
@@ -56,30 +75,36 @@ class BookingController extends Controller
             return back()->withErrors(['court_id' => 'This court is not available for booking.']);
         }
 
-        // Check for conflicting bookings
-        $conflicting = Booking::where('court_id', $validated['court_id'])
-            ->where('booking_date', $validated['booking_date'])
+        // Check for conflicting bookings (with overnight normalization)
+        $bookedSlots = Booking::where('court_id', $validated['court_id'])
+            ->whereDate('booking_date', $validated['booking_date'])
             ->whereIn('status', ['pending', 'approved'])
-            ->where(function ($query) use ($validated) {
-                $query->where(function ($q) use ($validated) {
-                    $q->where('start_time', '<', $validated['end_time'])
-                      ->where('end_time', '>', $validated['start_time']);
-                });
-            })
-            ->exists();
+            ->get();
+
+        $conflicting = $bookedSlots->contains(function ($booking) use ($normalizedStart, $normalizedEnd) {
+            $bookingStartHour = (int) substr($booking->start_time, 0, 2);
+            $bookingEndHour = (int) substr($booking->end_time, 0, 2);
+
+            // Normalize booking hours for overnight comparison
+            $bookingNormalizedStart = $bookingStartHour < 8 ? $bookingStartHour + 24 : $bookingStartHour;
+            $bookingNormalizedEnd = $bookingEndHour <= 3 ? $bookingEndHour + 24 : $bookingEndHour;
+
+            // Check for overlap: new booking overlaps if it starts before existing ends AND ends after existing starts
+            return ($normalizedStart < $bookingNormalizedEnd && $normalizedEnd > $bookingNormalizedStart);
+        });
 
         if ($conflicting) {
             return back()->withErrors(['start_time' => 'This time slot is already booked.']);
         }
 
-        // Create booking - set to approved immediately (no admin approval needed)
+        // Create booking - set to pending until admin approves payment
         $booking = Booking::create([
             'user_id' => auth()->id(),
             'court_id' => $validated['court_id'],
             'booking_date' => $validated['booking_date'],
             'start_time' => $validated['start_time'],
             'end_time' => $validated['end_time'],
-            'status' => 'approved', // Auto-approved, user proceeds to payment
+            'status' => 'pending', // Pending until admin approves payment
             'notes' => $validated['notes'],
         ]);
 
@@ -135,6 +160,11 @@ class BookingController extends Controller
 
         $booking->update(['status' => 'cancelled']);
 
+        // Update payment status to cancelled if exists
+        if ($booking->payment) {
+            $booking->payment->update(['payment_status' => 'cancelled']);
+        }
+
         // Log activity
         UserActivityLog::log(auth()->id(), 'booking_cancelled', "Cancelled booking #{$booking->id}");
 
@@ -161,29 +191,36 @@ class BookingController extends Controller
 
         // Get booked slots for this court and date
         $bookedSlots = Booking::where('court_id', $court->id)
-            ->where('booking_date', $date)
+            ->whereDate('booking_date', $date)
             ->whereIn('status', ['pending', 'approved'])
             ->get();
 
         foreach ($hours as $index => $hour) {
-            $slotStart = sprintf('%02d:00:00', $hour);
             $nextHour = $hour + 1;
-            if ($nextHour == 24) $nextHour = 0;
-            if ($hour == 2) $nextHour = 3; // Last slot ends at 3 AM
-            $slotEnd = sprintf('%02d:00:00', $nextHour);
+            if ($nextHour == 24)
+                $nextHour = 0;
+            if ($hour == 2)
+                $nextHour = 3; // Last slot ends at 3 AM
 
             // Check if this hour slot overlaps with any existing booking
-            $isBooked = $bookedSlots->contains(function ($booking) use ($slotStart, $slotEnd, $hour) {
-                // Convert times to comparable format (HH:MM:SS)
-                $bookingStart = is_string($booking->start_time) ? $booking->start_time : $booking->start_time->format('H:i:s');
-                $bookingEnd = is_string($booking->end_time) ? $booking->end_time : $booking->end_time->format('H:i:s');
-                
-                // Normalize to HH:MM:SS format
-                if (strlen($bookingStart) == 5) $bookingStart .= ':00';
-                if (strlen($bookingEnd) == 5) $bookingEnd .= ':00';
-                
-                // Check overlap: slot overlaps if slotStart < bookingEnd AND slotEnd > bookingStart
-                return ($slotStart < $bookingEnd && $slotEnd > $bookingStart);
+            // Normalize hours: 0-3 AM treated as 24-27 (continuation of previous day)
+            $normalizedSlotHour = $hour < 8 ? $hour + 24 : $hour;
+
+            $isBooked = $bookedSlots->contains(function ($booking) use ($normalizedSlotHour) {
+                // Extract hours from booking times
+                $bookingStartTime = is_string($booking->start_time) ? $booking->start_time : $booking->start_time->format('H:i:s');
+                $bookingEndTime = is_string($booking->end_time) ? $booking->end_time : $booking->end_time->format('H:i:s');
+
+                // Get just the hour part
+                $bookingStartHour = (int) substr($bookingStartTime, 0, 2);
+                $bookingEndHour = (int) substr($bookingEndTime, 0, 2);
+
+                // Normalize booking hours for overnight comparison
+                $normalizedBookingStart = $bookingStartHour < 8 ? $bookingStartHour + 24 : $bookingStartHour;
+                $normalizedBookingEnd = $bookingEndHour <= 3 ? $bookingEndHour + 24 : $bookingEndHour;
+
+                // A booking covers this slot if: normalizedSlotHour >= start AND normalizedSlotHour < end
+                return ($normalizedSlotHour >= $normalizedBookingStart && $normalizedSlotHour < $normalizedBookingEnd);
             });
 
             // Check if slot is in the past (for today)

@@ -30,7 +30,7 @@ class AdminController extends Controller
         ];
 
         // Peak hours analysis (bookings by hour)
-        $peakHours = Booking::selectRaw('HOUR(start_time) as hour, COUNT(*) as count')
+        $peakHours = Booking::selectRaw("HOUR(start_time) as hour, COUNT(*) as count")
             ->whereIn('status', ['approved', 'completed'])
             ->groupBy('hour')
             ->orderBy('count', 'desc')
@@ -38,9 +38,11 @@ class AdminController extends Controller
             ->get();
 
         // Most booked courts
-        $popularCourts = Court::withCount(['bookings' => function ($query) {
-            $query->whereIn('status', ['approved', 'completed']);
-        }])
+        $popularCourts = Court::withCount([
+            'bookings' => function ($query) {
+                $query->whereIn('status', ['approved', 'completed']);
+            }
+        ])
             ->orderBy('bookings_count', 'desc')
             ->take(5)
             ->get();
@@ -87,9 +89,42 @@ class AdminController extends Controller
     {
         $query = Booking::with(['user', 'court', 'payment']);
 
-        // Filter by status
+        // Filter by status (based on display_status logic)
         if ($request->has('status') && $request->status !== 'all') {
-            $query->where('status', $request->status);
+            $status = $request->status;
+            $now = now();
+            
+            if ($status === 'completed') {
+                // Show approved bookings whose session has ended
+                $query->where(function ($q) use ($now) {
+                    $q->where('status', 'approved')
+                      ->where(function ($q2) use ($now) {
+                          // Session has ended: booking_date + end_time < now
+                          // Handle overnight bookings (end time 0:00-03:00 means next day)
+                          $q2->whereRaw("
+                              CASE 
+                                  WHEN HOUR(end_time) <= 3 THEN CONCAT(DATE_ADD(booking_date, INTERVAL 1 DAY), ' ', end_time)
+                                  ELSE CONCAT(booking_date, ' ', end_time)
+                              END < ?
+                          ", [$now]);
+                      });
+                });
+            } elseif ($status === 'approved') {
+                // Show approved bookings whose session has NOT ended yet
+                $query->where('status', 'approved')
+                      ->where(function ($q) use ($now) {
+                          // Session has NOT ended
+                          $q->whereRaw("
+                              CASE 
+                                  WHEN HOUR(end_time) <= 3 THEN CONCAT(DATE_ADD(booking_date, INTERVAL 1 DAY), ' ', end_time)
+                                  ELSE CONCAT(booking_date, ' ', end_time)
+                              END >= ?
+                          ", [$now]);
+                      });
+            } else {
+                // For other statuses (pending, rejected, cancelled), use direct match
+                $query->where('status', $status);
+            }
         }
 
         // Filter by date
@@ -340,6 +375,9 @@ class AdminController extends Controller
             'payment_time' => now(),
         ]);
 
+        // Update booking status to approved
+        $payment->booking->update(['status' => 'approved']);
+
         // Log activity
         UserActivityLog::log(auth()->id(), 'payment_approved', "Approved payment #{$payment->id} for booking #{$payment->booking_id}");
 
@@ -356,10 +394,13 @@ class AdminController extends Controller
             'admin_notes' => $request->input('admin_notes'),
         ]);
 
+        // Update booking status to rejected so the time slot becomes available again
+        $payment->booking->update(['status' => 'rejected']);
+
         // Log activity
         UserActivityLog::log(auth()->id(), 'payment_rejected', "Rejected payment #{$payment->id} for booking #{$payment->booking_id}");
 
-        return back()->with('success', 'Payment rejected.');
+        return back()->with('success', 'Payment rejected. The time slot is now available for other bookings.');
     }
 }
 

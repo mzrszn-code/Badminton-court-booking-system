@@ -54,29 +54,29 @@ class CourtController extends Controller
 
         // Get booked slots
         $bookedSlots = Booking::where('court_id', $court->id)
-            ->where('booking_date', $date)
+            ->whereDate('booking_date', $date)
             ->whereIn('status', ['pending', 'approved'])
-            ->get()
-            ->map(function ($booking) {
-                return [
-                    'start' => substr($booking->start_time, 0, 5),
-                    'end' => substr($booking->end_time, 0, 5),
-                ];
-            })
-            ->toArray();
+            ->get();
 
         // Generate hourly slots
         for ($hour = $operatingHours['start']; $hour < $operatingHours['end']; $hour++) {
             $startTime = sprintf('%02d:00', $hour);
             $endTime = sprintf('%02d:00', $hour + 1);
 
-            $isBooked = false;
-            foreach ($bookedSlots as $booked) {
-                if ($startTime >= $booked['start'] && $startTime < $booked['end']) {
-                    $isBooked = true;
-                    break;
-                }
-            }
+            // Check if this hour slot overlaps with any existing booking
+            $isBooked = $bookedSlots->contains(function ($booking) use ($hour) {
+                // Extract hours from booking times
+                $bookingStartTime = is_string($booking->start_time) ? $booking->start_time : $booking->start_time->format('H:i:s');
+                $bookingEndTime = is_string($booking->end_time) ? $booking->end_time : $booking->end_time->format('H:i:s');
+                
+                // Get just the hour part
+                $bookingStartHour = (int)substr($bookingStartTime, 0, 2);
+                $bookingEndHour = (int)substr($bookingEndTime, 0, 2);
+                
+                // A booking from 08:00 to 10:00 covers slots 8 and 9
+                // So slot hour must be >= bookingStartHour AND < bookingEndHour
+                return ($hour >= $bookingStartHour && $hour < $bookingEndHour);
+            });
 
             $slots[] = [
                 'start' => $startTime,

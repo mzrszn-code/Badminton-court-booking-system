@@ -23,7 +23,19 @@ class User extends Authenticatable
         'phone',
         'password',
         'role',
+        'profile_picture',
     ];
+
+    /**
+     * Get the URL for the user's profile picture.
+     */
+    public function getProfilePictureUrl(): ?string
+    {
+        if ($this->profile_picture) {
+            return asset('storage/' . $this->profile_picture);
+        }
+        return null;
+    }
 
     /**
      * The attributes that should be hidden for serialization.

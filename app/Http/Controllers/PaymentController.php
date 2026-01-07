@@ -15,7 +15,7 @@ class PaymentController extends Controller
      */
     private const BANK_DETAILS = [
         'bank_name' => 'Maybank',
-        'account_name' => 'BadmintonBook Sdn Bhd',
+        'account_name' => 'Flotilla Badminton Center Sdn Bhd',
         'account_number' => '5621 8754 3210',
     ];
 
@@ -36,10 +36,14 @@ class PaymentController extends Controller
         }
 
         $booking->load(['court', 'payment']);
-        
-        // Calculate total
-        $hours = \Carbon\Carbon::parse($booking->start_time)
-            ->diffInHours(\Carbon\Carbon::parse($booking->end_time));
+
+        // Calculate total with overnight normalization (0-3 AM treated as 24-27)
+        $startHour = (int) \Carbon\Carbon::parse($booking->start_time)->format('H');
+        $endHour = (int) \Carbon\Carbon::parse($booking->end_time)->format('H');
+        if ($startHour >= 8 && $endHour <= 3) {
+            $endHour += 24; // Treat 0-3 AM as next day (24-27)
+        }
+        $hours = $endHour - $startHour;
         $total = $booking->court->hourly_rate * $hours;
 
         return view('payments.show', [
@@ -65,9 +69,13 @@ class PaymentController extends Controller
             'proof_image' => 'required|image|mimes:jpeg,png,jpg|max:2048',
         ]);
 
-        // Calculate amount
-        $hours = \Carbon\Carbon::parse($booking->start_time)
-            ->diffInHours(\Carbon\Carbon::parse($booking->end_time));
+        // Calculate amount with overnight normalization (0-3 AM treated as 24-27)
+        $startHour = (int) \Carbon\Carbon::parse($booking->start_time)->format('H');
+        $endHour = (int) \Carbon\Carbon::parse($booking->end_time)->format('H');
+        if ($startHour >= 8 && $endHour <= 3) {
+            $endHour += 24; // Treat 0-3 AM as next day (24-27)
+        }
+        $hours = $endHour - $startHour;
         $amount = $booking->court->hourly_rate * $hours;
 
         // Store proof image
