@@ -39,5 +39,12 @@ Overall, this booking system is designed not only to streamline the reservation 
 8. Maintenance Mode for Courts
 
 ## ERD Diagrams
-![alt text](image-url)
+![alt text](https://github.com/mzrszn-code/Badminton-court-booking-system/blob/main/erd.png)
+
+
+## Sequence Diagram
+![alt text](https://github.com/mzrszn-code/Badminton-court-booking-system/blob/main/User%20create%20booking.png)
+![alt text](https://github.com/mzrszn-code/Badminton-court-booking-system/blob/main/User%20check%20in%20with%20QR.png)
+![alt text](https://github.com/mzrszn-code/Badminton-court-booking-system/blob/main/Court%20Maintenance.png)
+![alt text](https://github.com/mzrszn-code/Badminton-court-booking-system/blob/main/Admin%20Approves.png)
 
